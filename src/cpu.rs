@@ -1,5 +1,5 @@
 use crate::instruction::{
-    Instr, JumpCondition, JumpTarget, LoadHTarget, Reg, Reg16, Target, Value,
+    Instr, JumpCondition, JumpTarget, LoadHOptions, Reg, Reg16, Target, Value,
 };
 use crate::registers;
 
@@ -131,7 +131,7 @@ impl CPU {
             // stack
             Instr::AddStackPointer(offset) => self.add_sp(offset),
             Instr::Load { lhs, rhs } => self.load(lhs, rhs),
-            Instr::LoadH { from, to } => self.loadh(from, to),
+            Instr::LoadH(options) => self.loadh(options),
         }
     }
     pub(crate) fn reg(&self, target: Reg) -> u8 {
@@ -421,28 +421,28 @@ impl CPU {
         self.set_target(lhs, value);
     }
 
-    fn loadh(&mut self, lhs: LoadHTarget, rhs: LoadHTarget) {
-        match (lhs, rhs) {
-            (LoadHTarget::Register(lhs), LoadHTarget::RegisterIndirect(rhs)) => {
-                let addr = 0xFF00 | u16::from(self.reg(rhs));
-                let value = self.memory.read(addr);
-                self.set_reg(lhs, value);
+    fn loadh(&mut self, options: LoadHOptions) {
+        match options {
+            LoadHOptions::Indirect { reg, ind, into_reg } => {
+                if into_reg {
+                    let addr = 0xFF00 | u16::from(self.reg(ind));
+                    let value = self.memory.read(addr);
+                    self.set_reg(reg, value);
+                } else {
+                    let addr = 0xFF00 | u16::from(self.reg(ind));
+                    self.memory.write(addr, self.reg(reg));
+                }
             }
-            (LoadHTarget::RegisterIndirect(lhs), LoadHTarget::Register(rhs)) => {
-                let addr = 0xFF00 | u16::from(self.reg(lhs));
-                self.memory.write(addr, self.reg(rhs));
+            LoadHOptions::Immediate { reg, n, into_reg } => {
+                if into_reg {
+                    let addr = 0xFF00 | u16::from(n);
+                    let value = self.memory.read(addr);
+                    self.set_reg(reg, value);
+                } else {
+                    let addr = 0xFF00 | u16::from(n);
+                    self.memory.write(addr, self.reg(reg));
+                }
             }
-            (LoadHTarget::Register(lhs), LoadHTarget::Immediate(n)) => {
-                let addr = 0xFF00 | u16::from(n);
-                let value = self.memory.read(addr);
-                self.set_reg(lhs, value);
-            }
-
-            (LoadHTarget::Immediate(n), LoadHTarget::Register(rhs)) => {
-                let addr = 0xFF00 | u16::from(n);
-                self.memory.write(addr, self.reg(rhs));
-            }
-            _ => unreachable!(),
         }
     }
 }

@@ -30,10 +30,9 @@ pub(crate) enum JumpTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LoadHTarget {
-    Register(Reg),
-    RegisterIndirect(Reg),
-    Immediate(u8),
+pub(crate) enum LoadHOptions {
+    Indirect { reg: Reg, ind: Reg, into_reg: bool },
+    Immediate { reg: Reg, n: u8, into_reg: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,10 +113,7 @@ pub(crate) enum Instr {
         lhs: Target,
         rhs: Value,
     },
-    LoadH {
-        from: LoadHTarget,
-        to: LoadHTarget,
-    },
+    LoadH(LoadHOptions),
 
     Jump {
         condition: JumpCondition,
