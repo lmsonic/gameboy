@@ -1,14 +1,16 @@
+use crate::cpu::CPU;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target {
     Register(Reg),
-    IndirectHL,
+    Address(u16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Value {
     Register(Reg),
     Immediate(u8),
-    IndirectHL,
+    Address(u16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +30,14 @@ pub(crate) enum JumpTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Instruction {
+pub(crate) enum LoadHTarget {
+    Register(Reg),
+    RegisterIndirect(Reg),
+    Immediate(u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Instr {
     Nop,
     Stop,
     Add {
@@ -105,6 +114,10 @@ pub(crate) enum Instruction {
         lhs: Target,
         rhs: Value,
     },
+    LoadH {
+        from: LoadHTarget,
+        to: LoadHTarget,
+    },
 
     Jump {
         condition: JumpCondition,
@@ -113,115 +126,115 @@ pub(crate) enum Instruction {
     AddStackPointer(i8),
 }
 
-impl Instruction {
-    pub(crate) fn from_opcode(opcode: u8) -> Self {
+impl CPU {
+    pub(crate) fn decode(&mut self, opcode: u8) -> Instr {
         match opcode {
-            0x00 => Self::Nop,
+            0x00 => Instr::Nop,
             //
-            0x03 => Self::Inc16 { reg: Reg16::BC },
-            0x04 => Self::Inc {
+            0x03 => Instr::Inc16 { reg: Reg16::BC },
+            0x04 => Instr::Inc {
                 target: Target::Register(Reg::B),
             },
-            0x05 => Self::Dec {
+            0x05 => Instr::Dec {
                 target: Target::Register(Reg::B),
             },
             //
-            0x07 => Self::RotateLeft {
+            0x07 => Instr::RotateLeft {
                 reg: Reg::A,
                 through_carry: false,
             },
             //
-            0x09 => Self::AddHL { reg: Reg16::BC },
+            0x09 => Instr::AddHL { reg: Reg16::BC },
             //
-            0x0B => Self::Dec16 { reg: Reg16::BC },
-            0x0C => Self::Inc {
+            0x0B => Instr::Dec16 { reg: Reg16::BC },
+            0x0C => Instr::Inc {
                 target: Target::Register(Reg::C),
             },
-            0x0D => Self::Dec {
+            0x0D => Instr::Dec {
                 target: Target::Register(Reg::C),
             },
-            0x0A => Self::RotateRight {
+            0x0A => Instr::RotateRight {
                 reg: Reg::A,
                 through_carry: false,
             },
             ////
-            0x10 => Self::Stop,
+            0x10 => Instr::Stop,
             //
-            0x13 => Self::Inc16 { reg: Reg16::DE },
-            0x14 => Self::Inc {
+            0x13 => Instr::Inc16 { reg: Reg16::DE },
+            0x14 => Instr::Inc {
                 target: Target::Register(Reg::D),
             },
-            0x15 => Self::Dec {
+            0x15 => Instr::Dec {
                 target: Target::Register(Reg::D),
             },
             //
-            0x17 => Self::RotateLeft {
+            0x17 => Instr::RotateLeft {
                 reg: Reg::A,
                 through_carry: true,
             },
             //
-            0x19 => Self::AddHL { reg: Reg16::DE },
+            0x19 => Instr::AddHL { reg: Reg16::DE },
             //
-            0x1B => Self::Dec16 { reg: Reg16::DE },
-            0x1C => Self::Inc {
+            0x1B => Instr::Dec16 { reg: Reg16::DE },
+            0x1C => Instr::Inc {
                 target: Target::Register(Reg::E),
             },
-            0x1D => Self::Dec {
+            0x1D => Instr::Dec {
                 target: Target::Register(Reg::E),
             },
-            0x1A => Self::RotateRight {
+            0x1A => Instr::RotateRight {
                 reg: Reg::A,
                 through_carry: true,
             },
             ////
-            0x23 => Self::Inc16 { reg: Reg16::HL },
-            0x24 => Self::Inc {
+            0x23 => Instr::Inc16 { reg: Reg16::HL },
+            0x24 => Instr::Inc {
                 target: Target::Register(Reg::H),
             },
-            0x25 => Self::Dec {
+            0x25 => Instr::Dec {
                 target: Target::Register(Reg::H),
             },
             //
-            0x27 => Self::DecimalAdjustAccumulator,
+            0x27 => Instr::DecimalAdjustAccumulator,
             //
-            0x29 => Self::AddHL { reg: Reg16::HL },
+            0x29 => Instr::AddHL { reg: Reg16::HL },
             //
-            0x2B => Self::Dec16 { reg: Reg16::HL },
-            0x2C => Self::Inc {
+            0x2B => Instr::Dec16 { reg: Reg16::HL },
+            0x2C => Instr::Inc {
                 target: Target::Register(Reg::L),
             },
-            0x2D => Self::Dec {
+            0x2D => Instr::Dec {
                 target: Target::Register(Reg::L),
             },
-            0x2A => Self::ComplementAccumulator,
+            0x2A => Instr::ComplementAccumulator,
             ////
-            0x33 => Self::Inc16 { reg: Reg16::SP },
-            0x34 => Self::Inc {
-                target: Target::IndirectHL,
+            0x33 => Instr::Inc16 { reg: Reg16::SP },
+            0x34 => Instr::Inc {
+                target: Target::Address(self.regs.hl()),
             },
-            0x35 => Self::Dec {
-                target: Target::IndirectHL,
+            0x35 => Instr::Dec {
+                target: Target::Address(self.regs.hl()),
             },
             //
-            0x37 => Self::SetCarryFlag,
+            0x37 => Instr::SetCarryFlag,
             //
-            0x39 => Self::AddHL { reg: Reg16::SP },
+            0x39 => Instr::AddHL { reg: Reg16::SP },
             //
-            0x3B => Self::Dec16 { reg: Reg16::SP },
-            0x3C => Self::Inc {
+            0x3B => Instr::Dec16 { reg: Reg16::SP },
+            0x3C => Instr::Inc {
                 target: Target::Register(Reg::A),
             },
-            0x3D => Self::Dec {
+            0x3D => Instr::Dec {
                 target: Target::Register(Reg::A),
             },
-            0x3A => Self::ComplementCarryFlag,
+            0x3A => Instr::ComplementCarryFlag,
             _ => {
                 panic!("Unkown instruction found for: 0x{:x}", opcode);
             }
         }
     }
 
-    pub(crate) fn from_prefixed(opcode: u8) -> Instruction {
+    pub(crate) fn decode_prefixed(&mut self, opcode: u8) -> Instr {
         match opcode {
             _ => {
                 panic!("Unkown instruction found for: 0xCB{:x}", opcode);

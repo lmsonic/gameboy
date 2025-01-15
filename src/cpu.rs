@@ -1,4 +1,6 @@
-use crate::instruction::{Instruction, JumpCondition, JumpTarget, Reg, Reg16, Target, Value};
+use crate::instruction::{
+    Instr, JumpCondition, JumpTarget, LoadHTarget, Reg, Reg16, Target, Value,
+};
 use crate::registers;
 
 use registers::Registers;
@@ -21,19 +23,25 @@ impl Memory {
     pub(crate) fn read(&self, address: u16) -> u8 {
         self.memory[usize::from(address)]
     }
+
     pub(crate) fn write(&mut self, address: u16, value: u8) {
         self.memory[usize::from(address)] = value
     }
 }
 
 impl CPU {
-    pub(crate) fn step(&mut self) {
+    pub(crate) fn fetch(&mut self) -> u8 {
         let byte = self.memory.read(self.pc);
+        self.pc += 1;
+        byte
+    }
+    pub(crate) fn step(&mut self) {
+        let byte = self.fetch();
         let instruction = if byte == 0xCB {
-            self.pc += 1;
-            Instruction::from_prefixed(self.memory.read(self.pc))
+            let byte = self.fetch();
+            self.decode_prefixed(byte)
         } else {
-            Instruction::from_opcode(byte)
+            self.decode(byte)
         };
         self.pc += 1;
         self.execute(instruction);
@@ -41,88 +49,89 @@ impl CPU {
     fn get_value(&self, value: Value) -> u8 {
         match value {
             Value::Register(reg) => self.reg(reg),
-            Value::IndirectHL => self.memory.read(self.regs.hl()),
+            Value::Address(address) => self.memory.read(address),
             Value::Immediate(n) => n,
         }
     }
     fn set_target(&mut self, target: Target, value: u8) {
         match target {
             Target::Register(reg) => self.set_reg(reg, value),
-            Target::IndirectHL => self.memory.write(self.regs.hl(), value),
+            Target::Address(address) => self.memory.write(address, value),
         }
     }
     fn get_target(&mut self, target: Target) -> u8 {
         match target {
             Target::Register(reg) => self.reg(reg),
-            Target::IndirectHL => self.memory.read(self.regs.hl()),
+            Target::Address(address) => self.memory.read(address),
         }
     }
 
-    pub(crate) fn execute(&mut self, instruction: Instruction) {
+    pub(crate) fn execute(&mut self, instruction: Instr) {
         match instruction {
             // 8 bit math
-            Instruction::Add { value, carry } => {
+            Instr::Add { value, carry } => {
                 let carry = if carry { self.regs.carry() as u8 } else { 0 };
                 let value = self.get_value(value) + carry;
                 self.add(value);
             }
-            Instruction::Sub { value, carry } => {
+            Instr::Sub { value, carry } => {
                 let carry = if carry { self.regs.carry() as u8 } else { 0 };
                 let value = self.get_value(value) + carry;
                 self.sub(value);
             }
-            Instruction::Compare { value } => {
+            Instr::Compare { value } => {
                 let value = self.get_value(value);
                 self.cmp(value);
             }
-            Instruction::Inc { target } => self.inc(target),
-            Instruction::Dec { target } => self.dec(target),
+            Instr::Inc { target } => self.inc(target),
+            Instr::Dec { target } => self.dec(target),
             // bitwise
-            Instruction::And { value } => {
+            Instr::And { value } => {
                 let value = self.get_value(value);
                 self.and(value);
             }
-            Instruction::Or { value } => {
+            Instr::Or { value } => {
                 let value = self.get_value(value);
                 self.or(value);
             }
-            Instruction::Xor { value } => {
+            Instr::Xor { value } => {
                 let value = self.get_value(value);
                 self.xor(value);
             }
-            Instruction::ComplementAccumulator => self.complement_accumulator(),
+            Instr::ComplementAccumulator => self.complement_accumulator(),
             // 16 bit math
-            Instruction::Inc16 { reg } => self.inc16(reg),
-            Instruction::Dec16 { reg } => self.dec16(reg),
-            Instruction::AddHL { reg } => self.addhl(reg),
+            Instr::Inc16 { reg } => self.inc16(reg),
+            Instr::Dec16 { reg } => self.dec16(reg),
+            Instr::AddHL { reg } => self.addhl(reg),
             // bit shift
-            Instruction::Swap { reg } => self.swap(reg),
-            Instruction::RotateRight { reg, through_carry } => {
+            Instr::Swap { reg } => self.swap(reg),
+            Instr::RotateRight { reg, through_carry } => {
                 self.rotate_right(reg, through_carry);
             }
-            Instruction::RotateLeft { reg, through_carry } => {
+            Instr::RotateLeft { reg, through_carry } => {
                 self.rotate_left(reg, through_carry);
             }
-            Instruction::ShiftRight { reg, set_msb_zero } => {
+            Instr::ShiftRight { reg, set_msb_zero } => {
                 self.shift_right(reg, set_msb_zero);
             }
-            Instruction::ShiftLeft { reg } => self.shift_left(reg),
-            Instruction::Bit { reg, bit } => self.bit(reg, bit),
+            Instr::ShiftLeft { reg } => self.shift_left(reg),
+            Instr::Bit { reg, bit } => self.bit(reg, bit),
             // bit flag
-            Instruction::SetBit { reg, bit } => self.set_bit(reg, bit),
-            Instruction::ResetBit { reg, bit } => self.reset_bit(reg, bit),
+            Instr::SetBit { reg, bit } => self.set_bit(reg, bit),
+            Instr::ResetBit { reg, bit } => self.reset_bit(reg, bit),
             // jump and call
-            Instruction::Jump { condition, target } => self.jump(condition, target),
+            Instr::Jump { condition, target } => self.jump(condition, target),
             // carry flag
-            Instruction::ComplementCarryFlag => self.complement_carry_flag(),
-            Instruction::SetCarryFlag => self.set_carry_flag(),
+            Instr::ComplementCarryFlag => self.complement_carry_flag(),
+            Instr::SetCarryFlag => self.set_carry_flag(),
             // misc
-            Instruction::DecimalAdjustAccumulator => self.decimal_adjust_accumulator(),
-            Instruction::Nop => {}
-            Instruction::Stop => std::process::exit(0),
+            Instr::DecimalAdjustAccumulator => self.decimal_adjust_accumulator(),
+            Instr::Nop => {}
+            Instr::Stop => std::process::exit(0),
             // stack
-            Instruction::AddStackPointer(offset) => self.add_sp(offset),
-            Instruction::Load { lhs, rhs } => self.load(lhs, rhs),
+            Instr::AddStackPointer(offset) => self.add_sp(offset),
+            Instr::Load { lhs, rhs } => self.load(lhs, rhs),
+            Instr::LoadH { from, to } => self.loadh(from, to),
         }
     }
     pub(crate) fn reg(&self, target: Reg) -> u8 {
@@ -410,5 +419,30 @@ impl CPU {
     fn load(&mut self, lhs: Target, rhs: Value) {
         let value = self.get_value(rhs);
         self.set_target(lhs, value);
+    }
+
+    fn loadh(&mut self, lhs: LoadHTarget, rhs: LoadHTarget) {
+        match (lhs, rhs) {
+            (LoadHTarget::Register(lhs), LoadHTarget::RegisterIndirect(rhs)) => {
+                let addr = 0xFF00 | u16::from(self.reg(rhs));
+                let value = self.memory.read(addr);
+                self.set_reg(lhs, value);
+            }
+            (LoadHTarget::RegisterIndirect(lhs), LoadHTarget::Register(rhs)) => {
+                let addr = 0xFF00 | u16::from(self.reg(lhs));
+                self.memory.write(addr, self.reg(rhs));
+            }
+            (LoadHTarget::Register(lhs), LoadHTarget::Immediate(n)) => {
+                let addr = 0xFF00 | u16::from(n);
+                let value = self.memory.read(addr);
+                self.set_reg(lhs, value);
+            }
+
+            (LoadHTarget::Immediate(n), LoadHTarget::Register(rhs)) => {
+                let addr = 0xFF00 | u16::from(n);
+                self.memory.write(addr, self.reg(rhs));
+            }
+            _ => unreachable!(),
+        }
     }
 }
