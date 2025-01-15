@@ -1,5 +1,6 @@
 use crate::cpu::CPU;
-
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArithmeticTarget {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target {
     Register(Reg),
@@ -113,7 +114,19 @@ pub(crate) enum Instr {
         lhs: Target,
         rhs: Value,
     },
+    Load16 {
+        reg: Reg16,
+        value: u16,
+    },
     LoadH(LoadHOptions),
+    LoadIncHL {
+        lhs: Target,
+        rhs: Value,
+    },
+    LoadDecHL {
+        lhs: Target,
+        rhs: Value,
+    },
 
     Jump {
         condition: JumpCondition,

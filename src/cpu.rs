@@ -132,6 +132,17 @@ impl CPU {
             Instr::AddStackPointer(offset) => self.add_sp(offset),
             Instr::Load { lhs, rhs } => self.load(lhs, rhs),
             Instr::LoadH(options) => self.loadh(options),
+            Instr::LoadIncHL { lhs, rhs } => {
+                self.load(lhs, rhs);
+                self.set_reg16(Reg16::HL, self.reg16(Reg16::HL) + 1);
+            }
+            Instr::LoadDecHL { lhs, rhs } => {
+                self.load(lhs, rhs);
+                self.set_reg16(Reg16::HL, self.reg16(Reg16::HL) - 1);
+            }
+            Instr::Load16 { reg, value } => {
+                self.set_reg16(reg, value);
+            }
         }
     }
     pub(crate) fn reg(&self, target: Reg) -> u8 {
