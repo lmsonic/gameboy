@@ -7,8 +7,8 @@ pub(crate) enum Target {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Value {
     Register(Reg),
-    IndirectHL,
     Immediate(u8),
+    IndirectHL,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,8 +23,8 @@ pub(crate) enum JumpCondition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum JumpTarget {
     HL,
-    Absolute,
-    Relative,
+    Absolute(u16),
+    Relative(i8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +70,7 @@ pub(crate) enum Instruction {
     AddHL {
         reg: Reg16,
     },
+
     Swap {
         reg: Reg,
     },
@@ -100,10 +101,16 @@ pub(crate) enum Instruction {
         reg: Reg,
         bit: u8,
     },
+    Load {
+        lhs: Target,
+        rhs: Value,
+    },
+
     Jump {
         condition: JumpCondition,
         target: JumpTarget,
     },
+    AddStackPointer(i8),
 }
 
 impl Instruction {
