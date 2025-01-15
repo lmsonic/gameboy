@@ -29,6 +29,10 @@ enum Instruction {
     Dec16 { reg: Reg16 },
     AddHL { reg: Reg16 },
     Swap { reg: Reg },
+    RotateRight { reg: Reg, through_carry: bool },
+    RotateLeft { reg: Reg, through_carry: bool },
+    ShiftRight { reg: Reg, set_msb_zero: bool },
+    ShiftLeft { reg: Reg },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reg {
@@ -118,14 +122,24 @@ impl CPU {
                 };
                 self.xor(value);
             }
-            Instruction::ComplementCarryFlag => self.ccf(),
-            Instruction::SetCarryFlag => self.scf(),
-            Instruction::ComplementAccumulator => self.cla(),
-            Instruction::DecimalAdjustAccumulator => self.daa(),
+            Instruction::ComplementCarryFlag => self.complement_carry_flag(),
+            Instruction::SetCarryFlag => self.set_carry_flag(),
+            Instruction::ComplementAccumulator => self.complement_accumulator(),
+            Instruction::DecimalAdjustAccumulator => self.decimal_adjust_accumulator(),
             Instruction::Inc16 { reg } => self.inc16(reg),
             Instruction::Dec16 { reg } => self.dec16(reg),
             Instruction::AddHL { reg } => self.addhl(reg),
             Instruction::Swap { reg } => self.swap(reg),
+            Instruction::RotateRight { reg, through_carry } => {
+                self.rotate_right(reg, through_carry);
+            }
+            Instruction::RotateLeft { reg, through_carry } => {
+                self.rotate_left(reg, through_carry);
+            }
+            Instruction::ShiftRight { reg, set_msb_zero } => {
+                self.shift_right(reg, set_msb_zero);
+            }
+            Instruction::ShiftLeft { reg } => self.shift_left(reg),
         }
     }
     fn reg(&self, target: Reg) -> u8 {
@@ -233,17 +247,17 @@ impl CPU {
         self.regs.set_half_carry(false);
         self.regs.a = new_value
     }
-    fn ccf(&mut self) {
+    fn complement_carry_flag(&mut self) {
         self.regs.set_sub(false);
         self.regs.set_half_carry(false);
         self.regs.set_carry(!self.regs.carry());
     }
-    fn scf(&mut self) {
+    fn set_carry_flag(&mut self) {
         self.regs.set_sub(false);
         self.regs.set_half_carry(false);
         self.regs.set_carry(true);
     }
-    fn daa(&mut self) {
+    fn decimal_adjust_accumulator(&mut self) {
         // From https://github.com/mvdnes/rboy/blob/main/src/cpu.rs#L794
         let mut a = self.regs.a;
         let carry = self.regs.carry();
@@ -270,7 +284,7 @@ impl CPU {
         self.regs.set_zero(a == 0);
         self.regs.a = a;
     }
-    fn cla(&mut self) {
+    fn complement_accumulator(&mut self) {
         self.regs.a = !self.regs.a;
         self.regs.set_sub(true);
         self.regs.set_half_carry(true);
@@ -304,6 +318,51 @@ impl CPU {
         self.regs.set_sub(false);
         self.regs.set_carry(false);
         self.regs.set_half_carry(false);
+        self.set_reg(reg, new_value);
+    }
+    /// Shift rotate operations flag updates
+    fn sr_flag_update(&mut self, result: u8, carry: bool) {
+        self.regs.set_zero(result == 0);
+        self.regs.set_carry(carry);
+        self.regs.set_sub(false);
+        self.regs.set_half_carry(false);
+    }
+    fn rotate_left(&mut self, reg: Reg, through_carry: bool) {
+        let r = self.reg(reg);
+        let carry = (r & 0x80) == 0x80;
+        let new_value = if through_carry {
+            r << 1 | if self.regs.carry() { 1 } else { 0 }
+        } else {
+            r.rotate_left(1)
+        };
+        self.sr_flag_update(new_value, carry);
+        self.set_reg(reg, new_value);
+    }
+
+    fn rotate_right(&mut self, reg: Reg, through_carry: bool) {
+        let r = self.reg(reg);
+        let carry = (r & 0x01) == 0x01;
+        let new_value = if through_carry {
+            r >> 1 | if self.regs.carry() { 0x80 } else { 0 }
+        } else {
+            r.rotate_left(1)
+        };
+        self.sr_flag_update(new_value, carry);
+        self.set_reg(reg, new_value);
+    }
+
+    fn shift_left(&mut self, reg: Reg) {
+        let r = self.reg(reg);
+        let carry = (r & 0x80) == 0x80;
+        let new_value = r << 1;
+        self.sr_flag_update(new_value, carry);
+        self.set_reg(reg, new_value);
+    }
+    fn shift_right(&mut self, reg: Reg, set_msb_zero: bool) {
+        let r = self.reg(reg);
+        let carry = (r & 0x01) == 0x01;
+        let new_value = (r >> 1) | if set_msb_zero { 0 } else { r & 0x80 };
+        self.sr_flag_update(new_value, carry);
         self.set_reg(reg, new_value);
     }
 }
