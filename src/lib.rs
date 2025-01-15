@@ -13,34 +13,100 @@ enum Value {
     IndirectHL,
     Immediate(u8),
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+
+enum JumpCondition {
+    NotZero,
+    Zero,
+    Carry,
+    NotCarry,
+    Always,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JumpTarget {
+    HL,
+    Absolute,
+    Relative,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Instruction {
     Nop,
     Stop,
-    Add { value: Value, carry: bool },
-    Sub { value: Value, carry: bool },
-    Compare { value: Value },
-    Inc { target: Target },
-    Dec { target: Target },
-    And { value: Value },
-    Or { value: Value },
-    Xor { value: Value },
+    Add {
+        value: Value,
+        carry: bool,
+    },
+    Sub {
+        value: Value,
+        carry: bool,
+    },
+    Compare {
+        value: Value,
+    },
+    Inc {
+        target: Target,
+    },
+    Dec {
+        target: Target,
+    },
+    And {
+        value: Value,
+    },
+    Or {
+        value: Value,
+    },
+    Xor {
+        value: Value,
+    },
     ComplementCarryFlag,
     SetCarryFlag,
     ComplementAccumulator,
     DecimalAdjustAccumulator,
-    Inc16 { reg: Reg16 },
-    Dec16 { reg: Reg16 },
-    AddHL { reg: Reg16 },
-    Swap { reg: Reg },
-    RotateRight { reg: Reg, through_carry: bool },
-    RotateLeft { reg: Reg, through_carry: bool },
-    ShiftRight { reg: Reg, set_msb_zero: bool },
-    ShiftLeft { reg: Reg },
-    Bit { reg: Reg, bit: u8 },
-    SetBit { reg: Reg, bit: u8 },
-    ResetBit { reg: Reg, bit: u8 },
+    Inc16 {
+        reg: Reg16,
+    },
+    Dec16 {
+        reg: Reg16,
+    },
+    AddHL {
+        reg: Reg16,
+    },
+    Swap {
+        reg: Reg,
+    },
+    RotateRight {
+        reg: Reg,
+        through_carry: bool,
+    },
+    RotateLeft {
+        reg: Reg,
+        through_carry: bool,
+    },
+    ShiftRight {
+        reg: Reg,
+        set_msb_zero: bool,
+    },
+    ShiftLeft {
+        reg: Reg,
+    },
+    Bit {
+        reg: Reg,
+        bit: u8,
+    },
+    SetBit {
+        reg: Reg,
+        bit: u8,
+    },
+    ResetBit {
+        reg: Reg,
+        bit: u8,
+    },
+    Jump {
+        condition: JumpCondition,
+        target: JumpTarget,
+    },
 }
 impl Instruction {
     fn from_opcode(opcode: u8) -> Self {
@@ -149,6 +215,14 @@ impl Instruction {
             }
         }
     }
+
+    fn from_prefixed(opcode: u8) -> Instruction {
+        match opcode {
+            _ => {
+                panic!("Unkown instruction found for: 0xCB{:x}", opcode);
+            }
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reg {
@@ -189,7 +263,12 @@ impl Memory {
 }
 impl CPU {
     fn step(&mut self) {
-        let instruction = Instruction::from_opcode(self.memory.read(self.pc));
+        let byte = self.memory.read(self.pc);
+        let instruction = if byte == 0xCB {
+            Instruction::from_prefixed(self.memory.read(self.pc + 1))
+        } else {
+            Instruction::from_opcode(byte)
+        };
         self.pc = self.execute(instruction);
     }
     fn execute(&mut self, instruction: Instruction) -> u16 {
@@ -279,6 +358,7 @@ impl CPU {
             Instruction::Bit { reg, bit } => self.bit(reg, bit),
             Instruction::SetBit { reg, bit } => self.set_bit(reg, bit),
             Instruction::ResetBit { reg, bit } => self.reset_bit(reg, bit),
+            Instruction::Jump { condition, target } => self.jump(condition, target),
         }
         self.pc + 2
     }
@@ -521,5 +601,33 @@ impl CPU {
     fn reset_bit(&mut self, reg: Reg, bit: u8) {
         let r = self.reg(reg);
         self.set_reg(reg, r & !(1 << bit));
+    }
+
+    fn jump(&mut self, condition: JumpCondition, target: JumpTarget) {
+        let address = match target {
+            JumpTarget::HL => self.regs.hl(),
+            JumpTarget::Absolute => {
+                // Gameboy is little endian so read pc + 2 as most significant bit
+                // and pc + 1 as least significant bit
+                let least_significant_byte = self.memory.read(self.pc + 1) as u16;
+                let most_significant_byte = self.memory.read(self.pc + 2) as u16;
+                self.pc += 3;
+                (most_significant_byte << 8) | least_significant_byte
+            }
+            JumpTarget::Relative => {
+                let offset = i16::from(self.memory.read(self.pc + 1) as i8);
+                self.pc += 2;
+                (self.pc as i16 + offset) as u16
+            }
+        };
+        if match condition {
+            JumpCondition::NotZero => !self.regs.zero(),
+            JumpCondition::Zero => self.regs.zero(),
+            JumpCondition::NotCarry => !self.regs.carry(),
+            JumpCondition::Carry => self.regs.carry(),
+            JumpCondition::Always => true,
+        } {
+            self.pc = address;
+        }
     }
 }
