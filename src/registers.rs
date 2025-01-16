@@ -12,7 +12,7 @@ pub(crate) struct Registers {
 }
 
 const ZERO_FLAG_BITPOS: u32 = 7;
-const SUB_FLAG_BITPOS: u32 = 6;
+const NEG_FLAG_BITPOS: u32 = 6;
 const HALF_CARRY_FLAG_BITPOS: u32 = 5;
 const CARRY_FLAG_BITPOS: u32 = 4;
 impl Registers {
@@ -50,11 +50,11 @@ impl Registers {
     pub(crate) fn set_zero(&mut self, value: bool) {
         self.f |= if value { 1 } else { 0 } << ZERO_FLAG_BITPOS;
     }
-    pub(crate) fn sub(&self) -> bool {
-        ((self.f >> SUB_FLAG_BITPOS) & 1) == 1
+    pub(crate) fn neg(&self) -> bool {
+        ((self.f >> NEG_FLAG_BITPOS) & 1) == 1
     }
-    pub(crate) fn set_sub(&mut self, value: bool) {
-        self.f |= if value { 1 } else { 0 } << SUB_FLAG_BITPOS;
+    pub(crate) fn set_neg(&mut self, value: bool) {
+        self.f |= if value { 1 } else { 0 } << NEG_FLAG_BITPOS;
     }
     pub(crate) fn half_carry(&self) -> bool {
         ((self.f >> HALF_CARRY_FLAG_BITPOS) & 1) == 1

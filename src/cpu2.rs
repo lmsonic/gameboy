@@ -66,6 +66,14 @@ impl CPU {
             R8::A => self.regs.a = value,
         }
     }
+    fn reg16(&mut self, r16: R16) -> u16 {
+        match r16 {
+            R16::BC => self.regs.bc(),
+            R16::DE => self.regs.de(),
+            R16::HL => self.regs.hl(),
+            R16::SP => self.sp,
+        }
+    }
     fn set_reg16(&mut self, r16: R16, value: u16) {
         match r16 {
             R16::BC => self.regs.set_bc(value),
@@ -74,15 +82,18 @@ impl CPU {
             R16::SP => self.sp = value,
         }
     }
+    fn get_byte_source(&mut self, byte_source: ByteSource) -> u8 {
+        match byte_source {
+            ByteSource::R8(r8) => self.reg(r8),
+            ByteSource::N8 => self.fetch(),
+        }
+    }
 
     fn execute(&mut self, instruction: Instr) {
         match instruction {
             Instr::Nop => {}
             Instr::Load(r8, byte_source) => {
-                let value = match byte_source {
-                    ByteSource::R8(r8) => self.reg(r8),
-                    ByteSource::N8 => self.fetch(),
-                };
+                let value = self.get_byte_source(byte_source);
                 self.set_reg(r8, value);
             }
             Instr::Load16Immediate(r16) => {
@@ -146,19 +157,112 @@ impl CPU {
                 };
                 self.write(address, self.regs.a);
             }
-            Instr::Add(byte_source) => todo!(),
-            Instr::AddWithCarry(byte_source) => todo!(),
-            Instr::Sub(byte_source) => todo!(),
-            Instr::SubWithCarry(byte_source) => todo!(),
-            Instr::And(byte_source) => todo!(),
-            Instr::Xor(byte_source) => todo!(),
-            Instr::Or(byte_source) => todo!(),
-            Instr::Cmp(byte_source) => todo!(),
-            Instr::Inc(r8) => todo!(),
-            Instr::Dec(r8) => todo!(),
-            Instr::Add16(r16, r17) => todo!(),
-            Instr::Inc16(r16) => todo!(),
-            Instr::Dec16(r16) => todo!(),
+            Instr::Add(byte_source, with_carry) => {
+                let value = self.get_byte_source(byte_source)
+                    + if with_carry {
+                        u8::from(self.regs.carry())
+                    } else {
+                        0
+                    };
+                let (new_value, overflow) = self.regs.a.overflowing_add(value);
+                self.regs.a = new_value;
+
+                self.regs.set_zero(new_value == 0);
+                self.regs.set_neg(false);
+                self.regs
+                    .set_half_carry((self.regs.a & 0xF) + (value & 0xF) > 0xF);
+                self.regs.set_carry(overflow);
+            }
+
+            Instr::Sub(byte_source, with_carry) => {
+                let value = self.get_byte_source(byte_source)
+                    - if with_carry {
+                        u8::from(self.regs.carry())
+                    } else {
+                        0
+                    };
+                let (new_value, overflow) = self.regs.a.overflowing_sub(value);
+                self.regs.a = new_value;
+
+                self.regs.set_zero(new_value == 0);
+                self.regs.set_neg(true);
+                self.regs
+                    .set_half_carry((self.regs.a & 0xF) < (value & 0xF));
+                self.regs.set_carry(overflow);
+            }
+            Instr::And(byte_source) => {
+                let value = self.get_byte_source(byte_source);
+                self.regs.a &= value;
+
+                self.regs.set_zero(self.regs.a == 0);
+                self.regs.set_neg(true);
+                self.regs.set_half_carry(false);
+                self.regs.set_carry(true);
+            }
+            Instr::Xor(byte_source) => {
+                let value = self.get_byte_source(byte_source);
+                self.regs.a ^= value;
+
+                self.regs.set_zero(self.regs.a == 0);
+                self.regs.set_neg(false);
+                self.regs.set_half_carry(false);
+                self.regs.set_carry(false);
+            }
+            Instr::Or(byte_source) => {
+                let value = self.get_byte_source(byte_source);
+                self.regs.a |= value;
+
+                self.regs.set_zero(self.regs.a == 0);
+                self.regs.set_neg(false);
+                self.regs.set_half_carry(false);
+                self.regs.set_carry(false);
+            }
+            Instr::Cmp(byte_source) => {
+                let value = self.get_byte_source(byte_source);
+                let (new_value, overflow) = self.regs.a.overflowing_sub(value);
+
+                self.regs.set_zero(new_value == 0);
+                self.regs.set_neg(true);
+                self.regs
+                    .set_half_carry((self.regs.a & 0xF) < (value & 0xF));
+                self.regs.set_carry(overflow);
+            }
+            Instr::Inc(r8) => {
+                self.regs.a += 1;
+
+                self.regs.set_zero(self.regs.a == 0);
+                self.regs.set_neg(false);
+                self.regs.set_half_carry((self.regs.a & 0xF) + 1 > 0xF);
+            }
+            Instr::Dec(r8) => {
+                self.regs.a -= 1;
+
+                self.regs.set_zero(self.regs.a == 0);
+                self.regs.set_neg(true);
+                self.regs.set_half_carry((self.regs.a & 0xF) == 0);
+            }
+            Instr::AddHL(rhs) => {
+                let value = self.reg16(rhs);
+                let hl = self.regs.hl();
+                let (new_value, overflow) = hl.overflowing_add(value);
+                self.regs.set_hl(new_value);
+
+                self.regs.set_neg(false);
+                // Half carry tests if we flow over the 11th bit i.e. does adding the two
+                // numbers together cause the 11th bit to flip
+                let mask = 0b111_1111_1111; // mask out bits 11-15
+                self.regs
+                    .set_half_carry((value & mask) + (hl & mask) > mask);
+                self.regs.set_carry(overflow);
+            }
+            Instr::Inc16(r16) => {
+                let value = self.reg16(r16);
+                self.set_reg16(r16, value + 1);
+            }
+            Instr::Dec16(r16) => {
+                let value = self.reg16(r16);
+                self.set_reg16(r16, value - 1);
+            }
             Instr::RotateLeft(r8) => todo!(),
             Instr::RotateRight(r8) => todo!(),
             Instr::RotateLeftThruCarry(r8) => todo!(),

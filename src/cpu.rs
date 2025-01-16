@@ -192,7 +192,7 @@ impl CPU {
         let a = self.regs.a;
         let (new_value, overflow) = a.overflowing_add(value);
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(overflow);
         // Half Carry is set if adding the lower nibbles of the value and register A
         // together result in a value bigger than 0xF. If the result is larger than 0xF
@@ -205,7 +205,7 @@ impl CPU {
         let a = self.regs.a;
         let (new_value, overflow) = a.overflowing_sub(value);
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(true);
+        self.regs.set_neg(true);
         self.regs.set_carry(overflow);
         self.regs.set_half_carry((a & 0xF) < (value & 0xF));
         self.regs.a = new_value
@@ -214,7 +214,7 @@ impl CPU {
         let a = self.regs.a;
         let (new_value, overflow) = a.overflowing_sub(value);
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(true);
+        self.regs.set_neg(true);
         self.regs.set_carry(overflow);
         self.regs.set_half_carry((a & 0xF) < (value & 0xF));
     }
@@ -223,7 +223,7 @@ impl CPU {
         let value = self.get_target(target);
         let new_value = value.wrapping_add(1);
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_half_carry((value & 0xF) + 1 > 0xF);
         self.set_target(target, new_value);
     }
@@ -231,7 +231,7 @@ impl CPU {
         let value = self.get_target(target);
         let new_value = value.wrapping_sub(1);
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(true);
+        self.regs.set_neg(true);
         self.regs.set_half_carry((value & 0xF) == 0);
         self.set_target(target, new_value);
     }
@@ -239,7 +239,7 @@ impl CPU {
     pub(crate) fn and(&mut self, value: u8) {
         let new_value = self.regs.a & value;
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(false);
         self.regs.set_half_carry(true);
         self.regs.a = new_value
@@ -247,7 +247,7 @@ impl CPU {
     pub(crate) fn or(&mut self, value: u8) {
         let new_value = self.regs.a | value;
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(false);
         self.regs.set_half_carry(false);
         self.regs.a = new_value
@@ -255,7 +255,7 @@ impl CPU {
     pub(crate) fn xor(&mut self, value: u8) {
         let new_value = self.regs.a ^ value;
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(false);
         self.regs.set_half_carry(false);
         self.regs.a = new_value
@@ -263,7 +263,7 @@ impl CPU {
 
     pub(crate) fn complement_accumulator(&mut self) {
         self.regs.a = !self.regs.a;
-        self.regs.set_sub(true);
+        self.regs.set_neg(true);
         self.regs.set_half_carry(true);
     }
 
@@ -280,7 +280,7 @@ impl CPU {
         let value = self.reg16(reg);
         let hl = self.regs.hl();
         let (new_value, overflow) = hl.overflowing_add(value);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(overflow);
         self.regs.set_half_carry((hl & 0xF) + (value & 0xF) > 0xF);
         self.regs.set_hl(new_value);
@@ -291,7 +291,7 @@ impl CPU {
         let r = self.reg(reg);
         let z = (r >> bit) & 1;
         self.regs.set_zero(z == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_half_carry(true);
     }
     pub(crate) fn set_bit(&mut self, reg: Reg, bit: u8) {
@@ -307,7 +307,7 @@ impl CPU {
     pub(crate) fn sr_flag_update(&mut self, result: u8, carry: bool) {
         self.regs.set_zero(result == 0);
         self.regs.set_carry(carry);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_half_carry(false);
     }
     pub(crate) fn rotate_left(&mut self, reg: Reg, through_carry: bool) {
@@ -354,7 +354,7 @@ impl CPU {
         let lower = (r & 0x0F) << 4;
         let new_value = lower | upper;
         self.regs.set_zero(new_value == 0);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(false);
         self.regs.set_half_carry(false);
         self.set_reg(reg, new_value);
@@ -383,18 +383,18 @@ impl CPU {
         let (new_value, overflow) = sp.overflowing_add(offset);
         self.sp = new_value as u16;
         self.regs.set_zero(false);
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_carry(overflow);
         self.regs.set_half_carry((sp & 0xF) + (offset & 0xF) > 0xF);
     }
     // carry flag instructions
     pub(crate) fn complement_carry_flag(&mut self) {
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_half_carry(false);
         self.regs.set_carry(!self.regs.carry());
     }
     pub(crate) fn set_carry_flag(&mut self) {
-        self.regs.set_sub(false);
+        self.regs.set_neg(false);
         self.regs.set_half_carry(false);
         self.regs.set_carry(true);
     }
@@ -404,7 +404,7 @@ impl CPU {
         let mut a = self.regs.a;
         let carry = self.regs.carry();
         let half_carry = self.regs.half_carry();
-        let sub = self.regs.sub();
+        let sub = self.regs.neg();
         let mut adjust = if carry { 0x60 } else { 0x00 };
         if half_carry {
             adjust |= 0x06;
