@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum R8 {
+pub(crate) enum R8 {
     B,
     C,
     D,
@@ -11,7 +11,7 @@ enum R8 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum R16 {
+pub(crate) enum R16 {
     BC,
     DE,
     HL,
@@ -19,7 +19,7 @@ enum R16 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum R16Stack {
+pub(crate) enum R16Stack {
     BC,
     DE,
     HL,
@@ -27,7 +27,7 @@ enum R16Stack {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum R16Mem {
+pub(crate) enum R16Mem {
     BC,
     DE,
     HLInc,
@@ -36,7 +36,7 @@ enum R16Mem {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Condition {
+pub(crate) enum Condition {
     NotZero,
     Zero,
     NotCarry,
@@ -45,19 +45,19 @@ enum Condition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ByteSource {
+pub(crate) enum ByteSource {
     R8(R8),
     N8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum JumpSource {
+pub(crate) enum JumpSource {
     HL,
     N16,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 
-enum RSTAddress {
+pub(crate) enum RSTAddress {
     X00,
     X08,
     X10,
@@ -68,14 +68,14 @@ enum RSTAddress {
     X38,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LoadHalfTarget {
+pub(crate) enum LoadHalfTarget {
     C,
     N16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 
-enum BitIndex {
+pub(crate) enum BitIndex {
     B0,
     B1,
     B2,
@@ -87,7 +87,7 @@ enum BitIndex {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Instr {
+pub(crate) enum Instr {
     Nop,
     Load(R8, ByteSource),
     Load16Immediate(R16),
@@ -142,7 +142,7 @@ enum Instr {
 }
 
 impl Instr {
-    fn from_opcode(opcode: u8) -> Self {
+    pub(crate) fn from_opcode(opcode: u8) -> Self {
         match opcode {
             // BLOCK 0
             //  nop
@@ -473,7 +473,7 @@ impl Instr {
             }
         }
     }
-    fn from_0xCB_prefixed_opcode(opcode: u8) -> Self {
+    pub(crate) fn from_0xCB_prefixed_opcode(opcode: u8) -> Self {
         match opcode {
             // rlc r8
             0x00 => Self::RotateLeft(R8::B),
