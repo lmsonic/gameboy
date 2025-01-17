@@ -2,6 +2,7 @@ use crate::{
     instruction::{
         ByteSource, Condition, Instr, JumpSource, LoadHalfTarget, R16Mem, R16Stack, R16, R8,
     },
+    memory::Memory,
     registers::Registers,
 };
 
@@ -11,7 +12,7 @@ struct CPU {
     regs: Registers,
     pc: u16,
     sp: u16,
-    memory: [u8; 65535],
+    memory: Memory,
     is_halted: bool,
     interrupts_enabled: bool,
 }
@@ -22,21 +23,21 @@ impl CPU {
             regs: Registers::new(),
             pc: 0,
             sp: 0,
-            memory: [0; 65535],
+            memory: Memory::new(),
             is_halted: false,
             interrupts_enabled: true,
         }
     }
-
-    fn read(&self, address: u16) -> u8 {
-        self.memory[usize::from(address)]
+    pub(crate) fn read(&self, address: u16) -> u8 {
+        self.memory.read(address)
     }
 
-    fn write(&mut self, address: u16, value: u8) {
-        self.memory[usize::from(address)] = value
+    pub(crate) fn write(&mut self, address: u16, value: u8) {
+        self.memory.write(address, value)
     }
+
     fn fetch(&mut self) -> u8 {
-        let v = self.read(self.pc);
+        let v = self.memory.read(self.pc);
         self.pc += 1;
         v
     }
@@ -45,13 +46,9 @@ impl CPU {
         let msb = u16::from(self.fetch());
         (msb << 8) | lsb
     }
-    fn read_word(&mut self, address: u16) -> u16 {
-        let lsb = u16::from(address);
-        let msb = u16::from(address + 1);
-        (msb << 8) | lsb
-    }
+
     fn step(&mut self) {
-        let byte = self.read(self.pc);
+        let byte = self.memory.read(self.pc);
         if !self.is_halted {
             self.pc += 1;
         }
