@@ -67,6 +67,20 @@ pub(crate) enum RSTAddress {
     X30,
     X38,
 }
+impl From<RSTAddress> for u16 {
+    fn from(value: RSTAddress) -> Self {
+        match value {
+            RSTAddress::X00 => 0x00,
+            RSTAddress::X08 => 0x08,
+            RSTAddress::X10 => 0x10,
+            RSTAddress::X18 => 0x18,
+            RSTAddress::X20 => 0x20,
+            RSTAddress::X28 => 0x28,
+            RSTAddress::X30 => 0x30,
+            RSTAddress::X38 => 0x38,
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoadHalfTarget {
     C,
@@ -84,6 +98,21 @@ pub(crate) enum BitIndex {
     B5,
     B6,
     B7,
+}
+
+impl From<BitIndex> for u8 {
+    fn from(value: BitIndex) -> Self {
+        match value {
+            BitIndex::B0 => 0,
+            BitIndex::B1 => 1,
+            BitIndex::B2 => 2,
+            BitIndex::B3 => 3,
+            BitIndex::B4 => 4,
+            BitIndex::B5 => 5,
+            BitIndex::B6 => 6,
+            BitIndex::B7 => 7,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,10 +136,8 @@ pub(crate) enum Instr {
     AddHL(R16),
     Inc16(R16),
     Dec16(R16),
-    RotateLeft(R8),
-    RotateRight(R8),
-    RotateLeftThruCarry(R8),
-    RotateRightThruCarry(R8),
+    RotateLeft(R8, bool),
+    RotateRight(R8, bool),
     ShiftLeftArithmetic(R8),
     ShiftRightArithmetic(R8),
     Swap(R8),
@@ -121,7 +148,7 @@ pub(crate) enum Instr {
     DecimalAdjustAcc,
     ComplementAcc,
     SetCarryFlag,
-    ClearCarryFlag,
+    ComplementCarryFlag,
     JumpRelative(Condition),
     JumpAbsolute(Condition, JumpSource),
     Stop,
@@ -205,13 +232,13 @@ impl Instr {
             0b0011_0110 => Self::Load(R8::HLInd, ByteSource::N8),
             0b0011_1110 => Self::Load(R8::A, ByteSource::N8),
             // rlca
-            0b0000_0111 => Self::RotateLeft(R8::A),
+            0b0000_0111 => Self::RotateLeft(R8::A, false),
             // rrca
-            0b0000_1111 => Self::RotateRight(R8::A),
+            0b0000_1111 => Self::RotateRight(R8::A, false),
             // rla
-            0b0001_0111 => Self::RotateLeftThruCarry(R8::A),
+            0b0001_0111 => Self::RotateLeft(R8::A, true),
             // rra
-            0b0001_1111 => Self::RotateRightThruCarry(R8::A),
+            0b0001_1111 => Self::RotateRight(R8::A, true),
             // daa
             0b0010_0111 => Self::DecimalAdjustAcc,
             // cpl
@@ -219,7 +246,7 @@ impl Instr {
             // scf
             0b0011_0111 => Self::SetCarryFlag,
             // ccf
-            0b0011_1111 => Self::ClearCarryFlag,
+            0b0011_1111 => Self::ComplementCarryFlag,
             // jr imm8
             0b0001_1000 => Self::JumpRelative(Condition::Always),
             // jr cond, imm8
@@ -474,41 +501,41 @@ impl Instr {
     pub(crate) fn from_0xCB_prefixed_opcode(opcode: u8) -> Self {
         match opcode {
             // rlc r8
-            0x00 => Self::RotateLeft(R8::B),
-            0x01 => Self::RotateLeft(R8::C),
-            0x02 => Self::RotateLeft(R8::D),
-            0x03 => Self::RotateLeft(R8::E),
-            0x04 => Self::RotateLeft(R8::H),
-            0x05 => Self::RotateLeft(R8::L),
-            0x06 => Self::RotateLeft(R8::HLInd),
-            0x07 => Self::RotateLeft(R8::A),
+            0x00 => Self::RotateLeft(R8::B, false),
+            0x01 => Self::RotateLeft(R8::C, false),
+            0x02 => Self::RotateLeft(R8::D, false),
+            0x03 => Self::RotateLeft(R8::E, false),
+            0x04 => Self::RotateLeft(R8::H, false),
+            0x05 => Self::RotateLeft(R8::L, false),
+            0x06 => Self::RotateLeft(R8::HLInd, false),
+            0x07 => Self::RotateLeft(R8::A, false),
             // rrc r8
-            0x08 => Self::RotateRight(R8::B),
-            0x09 => Self::RotateRight(R8::C),
-            0x0A => Self::RotateRight(R8::D),
-            0x0B => Self::RotateRight(R8::E),
-            0x0C => Self::RotateRight(R8::H),
-            0x0D => Self::RotateRight(R8::L),
-            0x0E => Self::RotateRight(R8::HLInd),
-            0x0F => Self::RotateRight(R8::A),
+            0x08 => Self::RotateRight(R8::B, false),
+            0x09 => Self::RotateRight(R8::C, false),
+            0x0A => Self::RotateRight(R8::D, false),
+            0x0B => Self::RotateRight(R8::E, false),
+            0x0C => Self::RotateRight(R8::H, false),
+            0x0D => Self::RotateRight(R8::L, false),
+            0x0E => Self::RotateRight(R8::HLInd, false),
+            0x0F => Self::RotateRight(R8::A, false),
             // rl r8
-            0x10 => Self::RotateLeftThruCarry(R8::B),
-            0x11 => Self::RotateLeftThruCarry(R8::C),
-            0x12 => Self::RotateLeftThruCarry(R8::D),
-            0x13 => Self::RotateLeftThruCarry(R8::E),
-            0x14 => Self::RotateLeftThruCarry(R8::H),
-            0x15 => Self::RotateLeftThruCarry(R8::L),
-            0x16 => Self::RotateLeftThruCarry(R8::HLInd),
-            0x17 => Self::RotateLeftThruCarry(R8::A),
+            0x10 => Self::RotateLeft(R8::B, true),
+            0x11 => Self::RotateLeft(R8::C, true),
+            0x12 => Self::RotateLeft(R8::D, true),
+            0x13 => Self::RotateLeft(R8::E, true),
+            0x14 => Self::RotateLeft(R8::H, true),
+            0x15 => Self::RotateLeft(R8::L, true),
+            0x16 => Self::RotateLeft(R8::HLInd, true),
+            0x17 => Self::RotateLeft(R8::A, true),
             // rr r8
-            0x18 => Self::RotateRightThruCarry(R8::B),
-            0x19 => Self::RotateRightThruCarry(R8::C),
-            0x1A => Self::RotateRightThruCarry(R8::D),
-            0x1B => Self::RotateRightThruCarry(R8::E),
-            0x1C => Self::RotateRightThruCarry(R8::H),
-            0x1D => Self::RotateRightThruCarry(R8::L),
-            0x1E => Self::RotateRightThruCarry(R8::HLInd),
-            0x1F => Self::RotateRightThruCarry(R8::A),
+            0x18 => Self::RotateRight(R8::B, true),
+            0x19 => Self::RotateRight(R8::C, true),
+            0x1A => Self::RotateRight(R8::D, true),
+            0x1B => Self::RotateRight(R8::E, true),
+            0x1C => Self::RotateRight(R8::H, true),
+            0x1D => Self::RotateRight(R8::L, true),
+            0x1E => Self::RotateRight(R8::HLInd, true),
+            0x1F => Self::RotateRight(R8::A, true),
             // sla r8
             0x20 => Self::ShiftLeftArithmetic(R8::B),
             0x21 => Self::ShiftLeftArithmetic(R8::C),

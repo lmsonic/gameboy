@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 
 pub(crate) struct Registers {
     pub(crate) a: u8,
@@ -16,6 +16,19 @@ const NEG_FLAG_BITPOS: u32 = 6;
 const HALF_CARRY_FLAG_BITPOS: u32 = 5;
 const CARRY_FLAG_BITPOS: u32 = 4;
 impl Registers {
+    pub(crate) fn new() -> Self {
+        Self {
+            a: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+            f: 0,
+            h: 0,
+            l: 0,
+        }
+    }
+
     pub(crate) fn af(&self) -> u16 {
         u16::from(self.a) << 8 | u16::from(u8::from(self.f))
     }
