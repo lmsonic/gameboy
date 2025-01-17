@@ -36,27 +36,33 @@ impl CPU {
         self.memory[usize::from(address)] = value
     }
     fn fetch(&mut self) -> u8 {
-        let byte = self.read(self.pc);
+        let v = self.read(self.pc);
         self.pc += 1;
-        byte
+        v
     }
     fn fetch_word(&mut self) -> u16 {
         let lsb = u16::from(self.fetch());
         let msb = u16::from(self.fetch());
         (msb << 8) | lsb
     }
+    fn read_word(&mut self, address: u16) -> u16 {
+        let lsb = u16::from(address);
+        let msb = u16::from(address + 1);
+        (msb << 8) | lsb
+    }
     fn step(&mut self) {
-        let byte = self.fetch();
+        let byte = self.read(self.pc);
+        if !self.is_halted {
+            self.pc += 1;
+        }
         let instruction = if byte == 0xCB {
             let byte = self.fetch();
             Instr::from_0xCB_prefixed_opcode(byte)
         } else {
             Instr::from_opcode(byte)
         };
+
         self.execute(instruction);
-        if !self.is_halted {
-            self.pc += 1;
-        }
     }
     fn reg(&self, r8: R8) -> u8 {
         match r8 {
@@ -225,9 +231,9 @@ impl CPU {
                 self.regs.a &= value;
 
                 self.regs.set_zero(self.regs.a == 0);
-                self.regs.set_neg(true);
-                self.regs.set_half_carry(false);
-                self.regs.set_carry(true);
+                self.regs.set_neg(false);
+                self.regs.set_half_carry(true);
+                self.regs.set_carry(false);
             }
             Instr::Xor(byte_source) => {
                 let value = self.get_byte_source(byte_source);
@@ -320,6 +326,8 @@ impl CPU {
                 } else {
                     value.rotate_right(1)
                 };
+                self.set_reg(r8, new_value);
+
                 self.regs
                     .set_zero(if r8 != R8::A { new_value == 0 } else { false });
                 self.regs.set_neg(false);
@@ -421,8 +429,8 @@ impl CPU {
             }
             Instr::ComplementAcc => {
                 self.regs.a = !self.regs.a;
-                self.regs.set_neg(false);
-                self.regs.set_half_carry(false);
+                self.regs.set_neg(true);
+                self.regs.set_half_carry(true);
             }
             Instr::SetCarryFlag => {
                 self.regs.set_neg(false);
@@ -437,11 +445,7 @@ impl CPU {
             Instr::JumpRelative(condition) => {
                 let offset = self.fetch() as i8;
                 if self.check_condition(condition) {
-                    if offset > 0 {
-                        self.pc += offset as u16;
-                    } else {
-                        self.pc -= offset as u16;
-                    }
+                    self.pc = self.pc.wrapping_add(offset as u16);
                 }
             }
             Instr::JumpAbsolute(condition, jump_source) => {
@@ -449,6 +453,7 @@ impl CPU {
                     JumpSource::HL => self.regs.hl(),
                     JumpSource::N16 => self.fetch_word(),
                 };
+
                 if self.check_condition(condition) {
                     self.pc = address;
                 }
@@ -539,23 +544,26 @@ impl CPU {
         }
     }
     fn push(&mut self, value: u16) {
-        self.sp -= 1;
-        let lsb = (value & 0xFF00 >> 8) as u8;
+        self.sp = self.sp.wrapping_sub(1);
+
+        let lsb = ((value & 0xFF00) >> 8) as u8;
         self.write(self.sp, lsb);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
         let msb = (value & 0x00FF) as u8;
         self.write(self.sp, msb);
     }
     fn pop(&mut self) -> u16 {
         let lsb = u16::from(self.read(self.sp));
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
         let msb = u16::from(self.read(self.sp));
-        self.sp += 1;
-        msb << 8 | lsb
+        self.sp = self.sp.wrapping_add(1);
+        (msb << 8) | lsb
     }
 }
 #[cfg(test)]
 mod tests {
+    use crate::instruction::BitIndex;
+
     use super::*;
     fn check_flags(cpu: &CPU, zero: bool, neg: bool, half_carry: bool, carry: bool) {
         assert_eq!(cpu.regs.zero(), zero);
@@ -834,349 +842,435 @@ mod tests {
         check_flags(&cpu, false, true, false, false);
     }
 
-    // // AND
-    // #[test]
-    // fn execute_and_8bit() {
-    //     let cpu = test_instruction!(Instruction::AND(ArithmeticTarget::A), a => 0x7);
-
-    //     assert_eq!(cpu.registers.a, 0x7);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => true, carry => false);
-    // }
-
-    // #[test]
-    // fn execute_and_8bit_with_zero() {
-    //     let cpu = test_instruction!(Instruction::AND(ArithmeticTarget::B), a => 0x8);
-
-    //     assert_eq!(cpu.registers.a, 0x0);
-    //     check_flags!(cpu, zero => true, subtract => false, half_carry => true, carry => false);
-    // }
-
-    // // OR
-    // #[test]
-    // fn execute_or_8bit() {
-    //     let cpu = test_instruction!(Instruction::OR(ArithmeticTarget::A), a => 0x7);
-
-    //     assert_eq!(cpu.registers.a, 0x7);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // #[test]
-    // fn execute_or_8bit_with_zero() {
-    //     let cpu = test_instruction!(Instruction::OR(ArithmeticTarget::B), a => 0x8);
-
-    //     assert_eq!(cpu.registers.a, 0x8);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // // XOR
-    // #[test]
-    // fn execute_xor_8bit() {
-    //     let cpu = test_instruction!(Instruction::XOR(ArithmeticTarget::A), a => 0b0000_0111);
-
-    //     assert_eq!(cpu.registers.a, 0x0);
-    //     check_flags!(cpu, zero => true, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // #[test]
-    // fn execute_xor_8bit_with_zero() {
-    //     let cpu = test_instruction!(Instruction::XOR(ArithmeticTarget::B), a => 0x8);
-
-    //     assert_eq!(cpu.registers.a, 0x8);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // // CP
-    // #[test]
-    // fn execute_cp_8bit_non_underflow_target_a() {
-    //     let cpu = test_instruction!(Instruction::CP(ArithmeticTarget::A), a => 0x7);
-
-    //     assert_eq!(cpu.registers.a, 0x7);
-    //     check_flags!(cpu, zero => true, subtract => true, half_carry => false, carry => false);
-    // }
-
-    // #[test]
-    // fn execute_cp_8bit_non_underflow_target_c() {
-    //     let cpu = test_instruction!(Instruction::CP(ArithmeticTarget::C), a => 0x7, c => 0x3);
-
-    //     assert_eq!(cpu.registers.a, 0x7);
-    //     check_flags!(cpu, zero => false, subtract => true, half_carry => false, carry => false);
-    // }
-
-    // #[test]
-    // fn execute_cp_8bit_non_overflow_target_c_with_carry() {
-    //     let cpu = test_instruction!(Instruction::CP(ArithmeticTarget::C), a => 0x7, c => 0x3, f.carry => true);
-
-    //     assert_eq!(cpu.registers.a, 0x7);
-    //     check_flags!(cpu, zero => false, subtract => true, half_carry => false, carry => false);
-    // }
-
-    // #[test]
-    // fn execute_cp_8bit_carry() {
-    //     let cpu = test_instruction!(Instruction::CP(ArithmeticTarget::B), a => 0x4, b => 0x9);
-
-    //     assert_eq!(cpu.registers.a, 0x4);
-    //     check_flags!(cpu, zero => false, subtract => true, half_carry => true, carry => true);
-    // }
-
-    // // RRA
-    // #[test]
-    // fn execute_rra_8bit() {
-    //     let cpu = test_instruction!(Instruction::RRA, a => 0b1);
-
-    //     assert_eq!(cpu.registers.a, 0x0);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // RLA
-    // #[test]
-    // fn execute_rla_8bit() {
-    //     let cpu = test_instruction!(Instruction::RLA, a => 0x80);
-
-    //     assert_eq!(cpu.registers.a, 0x0);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // RRCA
-    // #[test]
-    // fn execute_rrca_8bit() {
-    //     let cpu = test_instruction!(Instruction::RRCA, a => 0b1, f.carry => true);
-
-    //     assert_eq!(cpu.registers.a, 0x80);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // RLCA
-    // #[test]
-    // fn execute_rlca_8bit() {
-    //     let cpu = test_instruction!(Instruction::RLCA, a => 0x80, f.carry => true);
-
-    //     assert_eq!(cpu.registers.a, 0x1);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // CPL
-    // #[test]
-    // fn execute_cpl_8bit() {
-    //     let cpu = test_instruction!(Instruction::CPL, a => 0b1011_0100);
-
-    //     assert_eq!(cpu.registers.a, 0b0100_1011);
-    //     check_flags!(cpu, zero => false, subtract => true, half_carry => true, carry => false);
-    // }
-
-    // // BIT
-    // #[test]
-    // fn execute_bit_8bit() {
-    //     let cpu =
-    //         test_instruction!(Instruction::BIT(PrefixTarget::A, BitPosition::B2), a => 0b1011_0100);
-
-    //     assert_eq!(cpu.registers.a, 0b1011_0100);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => true, carry => false);
-
-    //     let cpu =
-    //         test_instruction!(Instruction::BIT(PrefixTarget::A, BitPosition::B1), a => 0b1011_0100);
-    //     assert_eq!(cpu.registers.a, 0b1011_0100);
-    //     check_flags!(cpu, zero => true, subtract => false, half_carry => true, carry => false);
-    // }
-
-    // // RES
-    // #[test]
-    // fn execute_res_8bit() {
-    //     let cpu =
-    //         test_instruction!(Instruction::RES(PrefixTarget::A, BitPosition::B2), a => 0b1011_0100);
-
-    //     assert_eq!(cpu.registers.a, 0b1011_0000);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-
-    //     let cpu =
-    //         test_instruction!(Instruction::RES(PrefixTarget::A, BitPosition::B1), a => 0b1011_0100);
-    //     assert_eq!(cpu.registers.a, 0b1011_0100);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // // SET
-    // #[test]
-    // fn execute_set_8bit() {
-    //     let cpu =
-    //         test_instruction!(Instruction::SET(PrefixTarget::A, BitPosition::B2), a => 0b1011_0100);
-
-    //     assert_eq!(cpu.registers.a, 0b1011_0100);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-
-    //     let cpu =
-    //         test_instruction!(Instruction::SET(PrefixTarget::A, BitPosition::B1), a => 0b1011_0100);
-    //     assert_eq!(cpu.registers.a, 0b1011_0110);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // // SRL
-    // #[test]
-    // fn execute_srl_8bit() {
-    //     let cpu = test_instruction!(Instruction::SRL(PrefixTarget::A), a => 0b1011_0101);
-
-    //     assert_eq!(cpu.registers.a, 0b0101_1010);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // RR
-    // #[test]
-    // fn execute_rr() {
-    //     let cpu = test_instruction!(Instruction::RR(PrefixTarget::A), a => 0b1011_0101);
-
-    //     assert_eq!(cpu.registers.a, 0b0101_1010);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-
-    //     let cpu =
-    //         test_instruction!(Instruction::RR(PrefixTarget::A), a => 0b1011_0101, f.carry => true);
-
-    //     assert_eq!(cpu.registers.a, 0b1101_1010);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // RL
-    // #[test]
-    // fn execute_rl() {
-    //     let cpu = test_instruction!(Instruction::RL(PrefixTarget::A), a => 0b1011_0101);
-
-    //     assert_eq!(cpu.registers.a, 0b0110_1010);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-
-    //     let cpu =
-    //         test_instruction!(Instruction::RL(PrefixTarget::A), a => 0b1011_0101, f.carry => true);
-
-    //     assert_eq!(cpu.registers.a, 0b0110_1011);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // SRA
-    // #[test]
-    // fn execute_sra() {
-    //     let cpu = test_instruction!(Instruction::SRA(PrefixTarget::A), a => 0b1011_0101);
-
-    //     assert_eq!(cpu.registers.a, 0b1101_1010);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // SLA
-    // #[test]
-    // fn execute_sla() {
-    //     let cpu = test_instruction!(Instruction::SLA(PrefixTarget::A), a => 0b1011_0101);
-
-    //     assert_eq!(cpu.registers.a, 0b0110_1010);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => true);
-    // }
-
-    // // SWAP
-    // #[test]
-    // fn execute_swap() {
-    //     let cpu = test_instruction!(Instruction::SWAP(PrefixTarget::A), a => 0b1011_0101);
-
-    //     assert_eq!(cpu.registers.a, 0b0101_1011);
-    //     check_flags!(cpu, zero => false, subtract => false, half_carry => false, carry => false);
-    // }
-
-    // // JP
-    // #[test]
-    // fn execute_jp() {
-    //     let mut cpu = CPU::new(None, vec![0; 0xFFFF]);
-    //     cpu.pc = 0xF8;
-    //     cpu.bus.write_byte(0xF9, 0xFC);
-    //     cpu.bus.write_byte(0xFA, 0x02);
-    //     let (next_pc, _) = cpu.execute(Instruction::JP(JumpTest::Always));
-
-    //     assert_eq!(next_pc, 0x02FC);
-
-    //     let (next_pc, _) = cpu.execute(Instruction::JP(JumpTest::Carry));
-
-    //     assert_eq!(next_pc, 0xFB);
-    // }
-
-    // // JR
-    // #[test]
-    // fn execute_jr() {
-    //     let mut cpu = CPU::new(None, vec![0; 0xFFFF]);
-    //     cpu.pc = 0xF8;
-    //     cpu.bus.write_byte(0xF9, 0x4);
-    //     let (next_pc, _) = cpu.execute(Instruction::JR(JumpTest::Always));
-
-    //     assert_eq!(next_pc, 0xFE);
-
-    //     cpu.bus.write_byte(0xF9, 0xFC); // == -4
-    //     let (next_pc, _) = cpu.execute(Instruction::JR(JumpTest::Always));
-    //     assert_eq!(next_pc, 0xF6);
-    // }
-
-    // // LD a, (??)
-    // #[test]
-    // fn execute_ld_a_indirect() {
-    //     let mut cpu = CPU::new(None, vec![0; 0xFFFF]);
-    //     cpu.registers.set_bc(0xF9);
-    //     cpu.bus.write_byte(0xF9, 0x4);
-    //     cpu.execute(Instruction::LD(LoadType::AFromIndirect(
-    //         Indirect::BCIndirect,
-    //     )));
-
-    //     assert_eq!(cpu.registers.a, 0x04);
-
-    //     cpu.registers.set_hl(0xA1);
-    //     cpu.bus.write_byte(0xA1, 0x9);
-    //     cpu.execute(Instruction::LD(LoadType::AFromIndirect(
-    //         Indirect::HLIndirectPlus,
-    //     )));
-
-    //     assert_eq!(cpu.registers.a, 0x09);
-    //     assert_eq!(cpu.registers.get_hl(), 0xA2);
-    // }
-
-    // // LD ?, ?
-    // #[test]
-    // fn execute_ld_byte() {
-    //     let mut cpu = CPU::new(None, vec![0; 0xFFFF]);
-    //     cpu.registers.b = 0x4;
-    //     cpu.execute(Instruction::LD(LoadType::Byte(
-    //         LoadByteTarget::D,
-    //         LoadByteSource::B,
-    //     )));
-
-    //     assert_eq!(cpu.registers.b, 0x4);
-    //     assert_eq!(cpu.registers.d, 0x4);
-    // }
-
-    // // PUSH/POP
-    // #[test]
-    // fn execute_push_pop() {
-    //     let mut cpu = CPU::new(None, vec![0; 0xFFFF]);
-    //     cpu.registers.b = 0x4;
-    //     cpu.registers.c = 0x89;
-    //     cpu.sp = 0x10;
-    //     cpu.execute(Instruction::PUSH(StackTarget::BC));
-
-    //     assert_eq!(cpu.bus.read_byte(0xF), 0x04);
-    //     assert_eq!(cpu.bus.read_byte(0xE), 0x89);
-    //     assert_eq!(cpu.sp, 0xE);
-
-    //     cpu.execute(Instruction::POP(StackTarget::DE));
-
-    //     assert_eq!(cpu.registers.d, 0x04);
-    //     assert_eq!(cpu.registers.e, 0x89);
-    // }
-
-    // // -----------------------------------------------------------------------------
-
-    // // Step
-    // #[test]
-    // fn test_step() {
-    //     let mut cpu = CPU::new(None, vec![0; 0xFFFF]);
-    //     cpu.bus.write_byte(0, 0x23); //INC(HL)
-    //     cpu.bus.write_byte(1, 0xB5); //OR(L)
-    //     cpu.bus.write_byte(2, 0xCB); //PREFIX
-    //     cpu.bus.write_byte(3, 0xe8); //SET(B, 5)
-    //     for _ in 0..3 {
-    //         cpu.step();
-    //     }
-
-    //     assert_eq!(cpu.registers.h, 0b0);
-    //     assert_eq!(cpu.registers.l, 0b1);
-    //     assert_eq!(cpu.registers.a, 0b1);
-    //     assert_eq!(cpu.registers.b, 0b0010_0000);
-    // }
+    // AND
+    #[test]
+    fn execute_and_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x07;
+        cpu.execute(Instr::And(ByteSource::R8(R8::A)));
+        assert_eq!(cpu.regs.a, 0x7);
+        check_flags(&cpu, false, false, true, false);
+    }
+
+    #[test]
+    fn execute_and_8bit_with_zero() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x08;
+        cpu.execute(Instr::And(ByteSource::R8(R8::B)));
+        assert_eq!(cpu.regs.a, 0x0);
+        check_flags(&cpu, true, false, true, false);
+    }
+
+    // OR
+    #[test]
+    fn execute_or_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x07;
+        cpu.execute(Instr::Or(ByteSource::R8(R8::A)));
+        assert_eq!(cpu.regs.a, 0x7);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    #[test]
+    fn execute_or_8bit_with_zero() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x08;
+        cpu.execute(Instr::Or(ByteSource::R8(R8::B)));
+        assert_eq!(cpu.regs.a, 0x8);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // XOR
+    #[test]
+    fn execute_xor_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b0000_0111;
+        cpu.execute(Instr::Xor(ByteSource::R8(R8::A)));
+        assert_eq!(cpu.regs.a, 0x0);
+        check_flags(&cpu, true, false, false, false);
+    }
+
+    #[test]
+    fn execute_xor_8bit_with_zero() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x8;
+        cpu.execute(Instr::Xor(ByteSource::R8(R8::B)));
+        assert_eq!(cpu.regs.a, 0x08);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // CP
+    #[test]
+    fn execute_cp_8bit_non_underflow_target_a() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x7;
+        cpu.execute(Instr::Cmp(ByteSource::R8(R8::A)));
+        assert_eq!(cpu.regs.a, 0x7);
+        check_flags(&cpu, true, true, false, false);
+    }
+
+    #[test]
+    fn execute_cp_8bit_non_underflow_target_c() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x7;
+        cpu.regs.c = 0x3;
+        cpu.execute(Instr::Cmp(ByteSource::R8(R8::C)));
+        assert_eq!(cpu.regs.a, 0x7);
+        check_flags(&cpu, false, true, false, false);
+    }
+
+    #[test]
+    fn execute_cp_8bit_non_overflow_target_c_with_carry() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x7;
+        cpu.regs.c = 0x3;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::Cmp(ByteSource::R8(R8::C)));
+        assert_eq!(cpu.regs.a, 0x7);
+        check_flags(&cpu, false, true, false, false);
+    }
+
+    #[test]
+    fn execute_cp_8bit_carry() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x4;
+        cpu.regs.b = 0x9;
+        cpu.execute(Instr::Cmp(ByteSource::R8(R8::B)));
+        assert_eq!(cpu.regs.a, 0x4);
+        check_flags(&cpu, false, true, true, true);
+    }
+
+    // RRA
+    #[test]
+    fn execute_rra_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1;
+        cpu.execute(Instr::RotateRight(R8::A, true));
+        assert_eq!(cpu.regs.a, 0x0);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    #[test]
+    fn execute_rra_8bit_test_carry_used() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x00;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateRight(R8::A, true));
+        assert_eq!(cpu.regs.a, 0x80);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // RLA
+    #[test]
+    fn execute_rla_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x80;
+        cpu.execute(Instr::RotateLeft(R8::A, true));
+        assert_eq!(cpu.regs.a, 0x0);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    #[test]
+    fn execute_rrl_8bit_test_carry_used() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x00;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateLeft(R8::A, true));
+        assert_eq!(cpu.regs.a, 0x01);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // RRCA
+    #[test]
+    fn execute_rrca_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateRight(R8::A, false));
+        assert_eq!(cpu.regs.a, 0x80);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    #[test]
+    fn execute_rrca_8bit_test_carry_not_used() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x00;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateRight(R8::A, false));
+        assert_eq!(cpu.regs.a, 0x00);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // RLCA
+    #[test]
+    fn execute_rlca_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x80;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateLeft(R8::A, false));
+        assert_eq!(cpu.regs.a, 0x1);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    #[test]
+    fn execute_rlca_8bit_test_carry_not_used() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0x00;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateLeft(R8::A, false));
+        assert_eq!(cpu.regs.a, 0x00);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // CPL
+    #[test]
+    fn execute_cpl_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.execute(Instr::ComplementAcc);
+        assert_eq!(cpu.regs.a, 0b0100_1011);
+        check_flags(&cpu, false, true, true, false);
+    }
+
+    // BIT
+    #[test]
+    fn execute_bit_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.execute(Instr::Bit(BitIndex::B2, R8::A));
+        assert_eq!(cpu.regs.a, 0b1011_0100);
+        check_flags(&cpu, false, false, true, false);
+
+        cpu.execute(Instr::Bit(BitIndex::B1, R8::A));
+        assert_eq!(cpu.regs.a, 0b1011_0100);
+        check_flags(&cpu, true, false, true, false);
+    }
+
+    // RES
+    #[test]
+    fn execute_res_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.execute(Instr::ResetBit(BitIndex::B2, R8::A));
+        assert_eq!(cpu.regs.a, 0b1011_0000);
+        check_flags(&cpu, false, false, false, false);
+
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.execute(Instr::ResetBit(BitIndex::B1, R8::A));
+        assert_eq!(cpu.regs.a, 0b1011_0100);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // SET
+    #[test]
+    fn execute_set_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.execute(Instr::SetBit(BitIndex::B2, R8::A));
+        assert_eq!(cpu.regs.a, 0b1011_0100);
+        check_flags(&cpu, false, false, false, false);
+
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.execute(Instr::SetBit(BitIndex::B1, R8::A));
+        assert_eq!(cpu.regs.a, 0b1011_0110);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // SRL
+    #[test]
+    fn execute_srl_8bit() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.execute(Instr::ShiftRightLogical(R8::A));
+        assert_eq!(cpu.regs.a, 0b0101_1010);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    // RR
+    #[test]
+    fn execute_rr() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.execute(Instr::RotateRight(R8::A, true));
+        assert_eq!(cpu.regs.a, 0b0101_1010);
+        check_flags(&cpu, false, false, false, true);
+
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateRight(R8::A, true));
+        assert_eq!(cpu.regs.a, 0b1101_1010);
+        check_flags(&cpu, false, false, false, true);
+
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0100;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateRight(R8::A, true));
+        assert_eq!(cpu.regs.a, 0b1101_1010);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // RL
+    #[test]
+    fn execute_rl() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.execute(Instr::RotateLeft(R8::A, true));
+        assert_eq!(cpu.regs.a, 0b0110_1010);
+        check_flags(&cpu, false, false, false, true);
+
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateLeft(R8::A, true));
+        assert_eq!(cpu.regs.a, 0b0110_1011);
+        check_flags(&cpu, false, false, false, true);
+
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b0011_0101;
+        cpu.regs.set_carry(true);
+        cpu.execute(Instr::RotateLeft(R8::A, true));
+        assert_eq!(cpu.regs.a, 0b0110_1011);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // SRA
+    #[test]
+    fn execute_sra() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.execute(Instr::ShiftRightArithmetic(R8::A));
+        assert_eq!(cpu.regs.a, 0b1101_1010);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    // SLA
+    #[test]
+    fn execute_sla() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.execute(Instr::ShiftLeftArithmetic(R8::A));
+        assert_eq!(cpu.regs.a, 0b0110_1010);
+        check_flags(&cpu, false, false, false, true);
+    }
+
+    // SWAP
+    #[test]
+    fn execute_swap() {
+        let mut cpu = CPU::new();
+        cpu.regs.a = 0b1011_0101;
+        cpu.execute(Instr::Swap(R8::A));
+        assert_eq!(cpu.regs.a, 0b0101_1011);
+        check_flags(&cpu, false, false, false, false);
+    }
+
+    // JP
+    #[test]
+    fn execute_jp() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0xF8;
+        cpu.write(0xF9, 0xFC);
+        cpu.write(0xFA, 0x02);
+        cpu.pc += 1;
+        cpu.execute(Instr::JumpAbsolute(Condition::Always, JumpSource::N16));
+        assert_eq!(cpu.pc, 0x02FC);
+
+        let mut cpu = CPU::new();
+        cpu.pc = 0xF8;
+        cpu.write(0xF9, 0xFC);
+        cpu.write(0xFA, 0x02);
+        cpu.pc += 1; // pretend we step
+        cpu.execute(Instr::JumpAbsolute(Condition::Carry, JumpSource::N16));
+        assert_eq!(cpu.pc, 0xFB);
+    }
+
+    // JR
+    #[test]
+    fn execute_jr() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0xF8;
+        cpu.write(0xF9, 0x4);
+        cpu.pc += 1; // pretend we step
+        cpu.execute(Instr::JumpRelative(Condition::Always));
+        assert_eq!(cpu.pc, 0xFE);
+
+        let mut cpu = CPU::new();
+        cpu.pc = 0xF8;
+        cpu.write(0xF9, 0xFC);
+        cpu.pc += 1; // pretend we step
+        cpu.execute(Instr::JumpRelative(Condition::Always));
+        assert_eq!(cpu.pc, 0xF6);
+    }
+
+    // LD a, (??)
+    #[test]
+    fn execute_ld_a_indirect() {
+        let mut cpu = CPU::new();
+        cpu.regs.set_bc(0xF9);
+        cpu.write(0xF9, 0x4);
+        cpu.execute(Instr::LoadIndirectToAcc(R16Mem::BC));
+
+        assert_eq!(cpu.regs.a, 0x04);
+
+        cpu.regs.set_hl(0xA1);
+        cpu.write(0xA1, 0x9);
+        cpu.execute(Instr::LoadIndirectToAcc(R16Mem::HLInc));
+
+        assert_eq!(cpu.regs.a, 0x09);
+        assert_eq!(cpu.regs.hl(), 0xA2);
+    }
+
+    // LD ?, ?
+    #[test]
+    fn execute_ld_byte() {
+        let mut cpu = CPU::new();
+        cpu.regs.b = 0x4;
+        cpu.execute(Instr::Load(R8::D, ByteSource::R8(R8::B)));
+
+        assert_eq!(cpu.regs.b, 0x4);
+        assert_eq!(cpu.regs.d, 0x4);
+    }
+
+    // PUSH/POP
+    #[test]
+    fn execute_push_pop() {
+        let mut cpu = CPU::new();
+        cpu.regs.b = 0x04;
+        cpu.regs.c = 0x89;
+        cpu.sp = 0x10;
+
+        cpu.execute(Instr::Push(R16Stack::BC));
+
+        assert_eq!(cpu.read(0xF), 0x04);
+        assert_eq!(cpu.read(0xE), 0x89);
+        assert_eq!(cpu.sp, 0xE);
+
+        cpu.execute(Instr::Pop(R16Stack::DE));
+
+        assert_eq!(cpu.regs.d, 0x04);
+        assert_eq!(cpu.regs.e, 0x89);
+    }
+
+    // -----------------------------------------------------------------------------
+
+    // Step
+    #[test]
+    fn test_step() {
+        let mut cpu = CPU::new();
+        cpu.write(0, 0x23); //INC(HL)
+        cpu.write(1, 0xB5); //OR(L)
+        cpu.write(2, 0xCB); //PREFIX
+        cpu.write(3, 0xe8); //SET(B, 5)
+
+        cpu.step();
+        cpu.step();
+        cpu.step();
+
+        assert_eq!(cpu.regs.h, 0b0);
+        assert_eq!(cpu.regs.l, 0b1);
+        assert_eq!(cpu.regs.a, 0b1);
+        assert_eq!(cpu.regs.b, 0b0010_0000);
+    }
 }
