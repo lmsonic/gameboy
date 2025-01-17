@@ -1,7 +1,6 @@
 use crate::{
-    instruction2::{
-        ByteSource, Condition, Instr, JumpSource, LoadHalfTarget, R16Mem, R16Stack, RSTAddress,
-        R16, R8,
+    instruction::{
+        ByteSource, Condition, Instr, JumpSource, LoadHalfTarget, R16Mem, R16Stack, R16, R8,
     },
     registers::Registers,
 };

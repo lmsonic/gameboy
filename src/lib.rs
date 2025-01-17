@@ -1,4 +1,3 @@
-mod cpu2;
-
-mod instruction2;
+mod cpu;
+mod instruction;
 mod registers;
